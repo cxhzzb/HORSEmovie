@@ -1,0 +1,71 @@
+# 模型清单
+
+**合计约 65 GB。** 这是迁移里唯一"重"的部分，其余全是几 MB 的文本和脚本。
+
+放在 `~/ComfyUI/models/<类别>/<文件名>`。文件名**必须完全一致**——工作流里写死了这些名字。
+
+---
+
+## 必需（缺一个就跑不起来）
+
+| 文件 | 放到 | 本机实测体积 | 官方下载 |
+|---|---|---|---|
+| `minimax_h3_ref2va_pruned_int8_convrot.safetensors` | `models/diffusion_models/Minimax_H3/` | **19.53 GB** | ⚠️ 见下方说明 |
+| `qwen3vl_32b_minimax_h3_int8_convrot.safetensors` | `models/text_encoders/` | **25.28 GB** | ⚠️ 见下方说明 |
+| `minimax_h3_video_vae_fp16.safetensors` | `models/vae/` | 4.85 GB | [Comfy-Org/MiniMax-H3](https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/vae/minimax_h3_video_vae_fp16.safetensors) |
+| `minimax_h3_audio_vae_fp32.safetensors` | `models/vae/` | 0.56 GB | [Comfy-Org/MiniMax-H3](https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/vae/minimax_h3_audio_vae_fp32.safetensors) |
+| `minimax_h3_turbo_v4_step600_ema_pruned_comfyui.safetensors` | `models/loras/` | 0.58 GB | ⚠️ 见下方说明 |
+| `qwen-image-2.1-UC-int8_convrot.safetensors` | `models/diffusion_models/` | 6.76 GB | ⚠️ 见下方说明 |
+| `qwen3vl_8b_int8_convrot.safetensors` | `models/text_encoders/` | 8.71 GB | ⚠️ 见下方说明 |
+| `qwen_image_2.1_vae_bf16.safetensors` | `models/vae/` | 0.63 GB | [Comfy-Org/Qwen-Image-2.1](https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/vae/qwen_image_2.1_vae_bf16.safetensors) |
+
+**小计 ≈ 66.9 GB**
+
+---
+
+## ⚠️ 关于"⚠️"那几个
+
+工作流里引用的这几个是 **int8 / convrot 量化版**，文件名带 `_int8_convrot` 或 `-UC-int8`。
+Comfy-Org 官方仓库提供的是 **fp16 / nvfp4** 版本，**文件名对不上**。两种情况：
+
+**情况 A：能拿到同名文件（推荐）**
+直接拷过去最省事。这几 个文件在本机就有：
+```bash
+ls -lh ~/ComfyUI/models/diffusion_models/Minimax_H3/
+ls -lh ~/ComfyUI/models/text_encoders/ | grep -i minimax
+ls -lh ~/ComfyUI/models/loras/ | grep -i turbo
+```
+用移动硬盘或局域网直接拷，65 GB 走 USB3 大约 10–20 分钟。
+
+**情况 B：拿不到，改用官方版本**
+下载官方文件后，**工作流里的模型名要改**。两种做法：
+1. 在 ComfyUI 界面里手动选一遍模型，另存为新工作流，再把 `pipelines.json` 里的 workflow 名改掉；
+2. 或者用 `comfy.py run --set '#节点.unet_name="新文件名"'` 在运行时覆盖（不改用户的工作流文件）。
+
+⚠️ 换成 fp16/nvfp4 后**显存占用会变**。nvfp4 在 RTX 40 系上没有硬件加速（实测文本编码器换 nvfp4→int8 耗时无变化），
+但 fp16 的 32B 文本编码器**很可能放不进 8G 显存**，届时整个方案的可行性要重估。
+
+---
+
+## 可选（提升画质/放大用）
+
+| 文件 | 体积 | 用途 |
+|---|---|---|
+| `minimax_h3_fl2va_pruned_int8_convrot.safetensors` | — | 首尾帧模式（本项目未用） |
+| `minimax_h3/minimax_h3_fl2v_lightx2v_turbo_4step_v0.1_comfy.safetensors` | 1.82 GB | 4 步 FL2V 加速 LoRA（本项目未用） |
+| `qwen_image_2.1_int8_convrot.safetensors` | — | Qwen-Image 另一版量化 |
+| `qwen3vl_8b_bf16.safetensors` | — | Qwen-Image 的 fp16 文本编码器 |
+| VOSR2 / 4x-UltraSharp | — | 超分（`upscale-vosr2` / `upscale-4x` 管线） |
+
+> 本机缺 `minimax_h3_fl2va_pruned_int8_convrot.safetensors`、`qwen_image_2.1_int8_convrot.safetensors`、
+> `qwen3vl_8b_bf16.safetensors` —— 工作流里有这些 loader 但走的是备选分支，**不影响出片**。
+
+---
+
+## 拷完自检
+
+```bash
+python3 doctor.py          # 在本 bundle 目录里跑
+```
+
+它会逐个核对文件是否存在、体积是否对得上，并告诉你还缺什么。

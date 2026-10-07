@@ -1,0 +1,230 @@
+{
+  "_comment": "Pipeline registry for the user's ComfyUI. Node ids are VERIFIED as of 2026-10-05, but the user edits workflows — run `comfy.py plan <wf>` first and trust its output over this file. 'primary: true' marks the two workflows he actually works in.",
+  "video-main": {
+    "primary": true,
+    "kind": "video",
+    "workflow": "▶▷MiniMaxH3-加速视频流整合 有4个提示词",
+    "aliases": [
+      "▶▷MiniMaxH3-加速视频流整合",
+      "▶▷MiniMaxH3-加速视频流整合 有提示词"
+    ],
+    "verified": "2026-10-05 conversion + server validation OK",
+    "live_wiring": "reference-to-video #316 (MiniMaxH3ReferenceToVideo), model Minimax_H3/minimax_h3_ref2va_pruned_int8_convrot, 8 steps, res_multistep, 4 ref images supported",
+    "modes": {
+      "reference-to-video": "全参考模式；用 <Picture 1>/<Picture 2> 指代参考图，锁定人物与场景 —— 本项目主力模式",
+      "t2v": "文生视频 T2VA",
+      "i2v": "首帧图生 I2VA",
+      "fl2v": "首尾帧 FL2VA",
+      "l2v": "尾帧图生 L2VA"
+    },
+    "patch": {
+      "prompt_final": "#365.text",
+      "prompt_brief_zh": "#364.输入提示词",
+      "polish_mode": "#364.增强方式",
+      "polish_task_type": "#364.任务类型",
+      "polish_duration": "#364.视频时长",
+      "seed": "#303.seed",
+      "aspect_ratio": "#290.aspect_ratio",
+      "megapixels": "#290.megapixels",
+      "duration_s": "#292.value",
+      "reference_1": "#308.image",
+      "reference_2": "#295.image",
+      "output": "#285.filename_prefix"
+    },
+    "notes": [
+      "prompt 的直接覆盖点是 #365.text（H3PromptEdit，手动优先）；留空则回落到 Polish 的 LLM 结果。",
+      "#364/#366/#368/#370 是 H3PromptPolish，object_info 里 output_node=true，所以它们【一定会执行】——每个都会加载本地 Qwen3.5-4B GGUF。跑之前用 `--drop H3PromptPolish` 全部丢掉，改直接写 #365.text，能省掉数次 LLM 加载。",
+      "另一种省时办法：--set '#364.增强方式=本地模板(不调模型)'。",
+      "三个文件里接线不同：无后缀那个接的是 MiniMaxH3ImageToVideo #133（首帧图生），另外两个接 ReferenceToVideo #316。跑之前先 plan。",
+      "auto_drop 已在注册表里声明：DSH 运行时会自动丢掉全部 H3PromptPolish（不再跑本地 Qwen 润色），最终提示词由 DSH 自己写；用户在 UI 里手动跑不受影响。用 --no-auto-drop 可临时恢复内置润色。"
+    ],
+    "auto_drop": [
+      "H3PromptPolish"
+    ],
+    "prompt_field": "#365.text"
+  },
+  "image-main": {
+    "primary": true,
+    "kind": "image",
+    "workflow": "▶▷Qwen-image21-图像编辑+生图流（整合）",
+    "verified": "2026-10-05 conversion + server validation OK",
+    "live_wiring": "two parallel branches: edit (KSampler #481, switch=false) and txt2img (KSampler #515, switch=true); Qwen-Image 2.1 UC int8 + qwen3vl_8b clip + qwen_image_2.1 vae, 30 steps euler/simple",
+    "patch": {
+      "txt2img_prompt": "#517.value",
+      "txt2img_aspect_ratio": "#512.aspect_ratio",
+      "txt2img_megapixels": "#512.megapixels",
+      "txt2img_steps": "#515.steps",
+      "txt2img_seed": "#524.seed",
+      "txt2img_output": "#508.filename_prefix",
+      "edit_prompt": "#571.value",
+      "edit_image": "#475.image",
+      "edit_aspect_ratio": "#13.aspect_ratio",
+      "edit_megapixels": "#13.megapixels",
+      "edit_steps": "#481.steps",
+      "edit_seed": "#502.seed",
+      "edit_switch": "#482.switch",
+      "edit_output": "#487.filename_prefix",
+      "txt2img_negative": "#522.negative_prompt",
+      "edit_negative": "#497.negative_prompt"
+    },
+    "notes": [
+      "#482 ComfySwitchNode 决定走哪条：true = 空 latent（文生图），false = 输入图 latent（图生图/编辑）。",
+      "两个分支的 SaveImage 前缀默认是 QW21-%date:...%，覆盖成 dsh/<project>/<shot> 才能被桥接收进项目目录。",
+      "编辑分支必须先 upload 一张图并写进 #475.image。",
+      "这条管线里【没有】LLM 润色节点，提示词本来就是手写的（#517 生图 / #571 编辑），所以不需要关任何节点——DSH 直接写这两个字段。",
+      "注意：#487(编辑 SaveImage)、#508(生图 SaveImage)、#530(Image Comparer) 都是 output_node，所以【两条分支默认都会执行】——每次出图等于跑两遍采样。按 branch_drops 砍掉不要的那条，时间减半。",
+      "真实控制/性能节点不要动：ImageScaleToTotalPixels #532（输入图规格化）、TESpeedQwenImage21 #649/#653（加速）。"
+    ],
+    "prompt_field": "#517.value",
+    "edit_prompt_field": "#571.value",
+    "auto_drop": [],
+    "branch_drops": {
+      "只出图（跳过编辑分支）": [
+        "#487",
+        "#530"
+      ],
+      "只做编辑/图生图（跳过文生图分支）": [
+        "#508"
+      ]
+    }
+  },
+  "quick-txt2img": {
+    "kind": "image",
+    "workflow": "~/comfy-projects/_pipelines/txt2img-qwen.api.json",
+    "source": "hand-built minimal graph from the user's Qwen-Image 2.1 loaders",
+    "verified": "2026-10-05: 768x432 8 steps ~20s; 1024x576 20 steps ~50s — real images produced",
+    "patch": {
+      "prompt": "#4.prompt",
+      "negative": "#4.negative_prompt",
+      "width": "#5.width",
+      "height": "#5.height",
+      "steps": "#6.steps",
+      "cfg": "#6.cfg",
+      "seed": "#6.seed",
+      "sampler": "#6.sampler_name",
+      "scheduler": "#6.scheduler",
+      "output": "#8.filename_prefix"
+    },
+    "notes": [
+      "fastest smoke test and the default still-frame path for render_shots.py"
+    ]
+  },
+  "t2v-minimax": {
+    "kind": "video",
+    "workflow": "MiniMax_H3_T2V_Turbo8步",
+    "verified": "conversion + server validation OK (not executed end to end)",
+    "patch": {
+      "prompt": "#105/104.prompt",
+      "seed": "#105/15.noise_seed",
+      "aspect_ratio": "#115.aspect_ratio",
+      "megapixels": "#115.megapixels",
+      "duration_s": "#105/111.value",
+      "output": "#92.filename_prefix"
+    },
+    "notes": [
+      "subgraph instance 105 flattens to '#105/<innerId>'"
+    ]
+  },
+  "i2v-minimax": {
+    "_why": "改用『加速视频流整合』这条（它本身就是 MiniMaxH3ImageToVideo），因为它带 MiniMaxH3MemoryEfficientSageAttentionPatch。朴素的 MiniMax_H3_I2V_Turbo8步 没有这个补丁，同一镜同参数实测 16.8 分钟 vs 5.8 分钟（2.9×）。",
+    "kind": "video",
+    "workflow": "▶▷MiniMaxH3-加速视频流整合",
+    "verified": "2026-10-05：steps=4/0.75 时 030 出现重影+发软；改 8/1.0 后重测",
+    "patch": {
+      "first_frame": "#114.image",
+      "prompt": "#369.text",
+      "seed": "#186.seed",
+      "aspect_ratio": "#115.aspect_ratio",
+      "megapixels": "#115.megapixels",
+      "duration_s": "#135.value",
+      "output": "#189.filename_prefix"
+    },
+    "notes": [
+      "该文件是 I2V（MiniMaxH3ImageToVideo #133），别名已在 video-main 里，所以 H3PromptPolish 会被 auto_drop。",
+      "#115 默认存的是 9:16 (Portrait Widescreen)，跑 16:9 必须显式覆盖，否则画幅是竖的。",
+      "首帧用关键帧（编辑分支产物）→ 人物锁定正确；Ref2VA 全参考直出会换脸。"
+    ],
+    "fixed": {
+      "#126.steps": 8,
+      "#140.strength_model": 1.0
+    },
+    "_quality": "这条无后缀的工作流默认是省时档（steps=4、LoRA 强度 0.75），画面偏软；你推荐的『有4个提示词』用的是 steps=8、强度 1.0。这里把两个参数拉回质量档，既保留首帧锁脸（ImageToVideo），又用满画质。"
+  },
+  "four-view": {
+    "kind": "image-sheet",
+    "workflow": "▶▷MiniMaxH3辅助四视图生成流-k2",
+    "verified": "conversion OK; server rejects until a reference image is uploaded",
+    "patch": {
+      "reference": "#17.image",
+      "model": "#25.unet_name",
+      "lora": "#16.lora_name"
+    },
+    "notes": [
+      "character turnarounds for consistency; Windows backslash model paths are auto-normalized"
+    ],
+    "deprecated": "用户 2026-10-05 否决：Krea2 模型效果不好。改用 qwen-fourview。"
+  },
+  "upscale-vosr2": {
+    "kind": "upscale",
+    "workflow": "▶VOSR2真超分（推荐）",
+    "verified": "conversion OK; needs an input image"
+  },
+  "upscale-4x": {
+    "kind": "upscale",
+    "workflow": "▶4x-UltraSharp纯放大（不改内容）",
+    "verified": "conversion OK; needs an input image"
+  },
+  "image-alt": {
+    "kind": "image",
+    "workflow": "大圣Ai之Qwen+image+2.1-12大应用全能生图",
+    "verified": "2026-10-05 conversion + server validation OK",
+    "prompt_field": "#575.text",
+    "auto_drop": [
+      "TE_Qwen_Image_2_1_Prompt_Enhancer"
+    ],
+    "patch": {
+      "edit_prompt": "#575.text",
+      "pose_or_text": "#556",
+      "unet": "#523.unet_name",
+      "lora": "#566.lora_name",
+      "sampler_steps": "#567.steps",
+      "seed": "#567.seed",
+      "output": "#570.filename_prefix"
+    },
+    "notes": [
+      "TE_Qwen_Image_2_1_Prompt_Enhancer #536 是 LLM 润色节点（要加载 Qwen3.5-4B GGUF），但它的输出只接到 #599 VRAMCleanup —— 死代码。已 auto_drop。",
+      "该文件里有 4 个 VRAMCleanup/RAMCleanup 与 3 个 Image Comparer/easy showAnything/PreviewImage，且都是 output_node=true，会各自保活一整条上游链并各自出一张图——这是它比『整合』慢的主因。草稿期可以额外 --drop 'Image Comparer (rgthree)' --drop 'easy showAnything' --drop 'PreviewImage'。",
+      "VNCCS_PoseStudio #556 是姿态控制（真实空间控制，不是猜提示词），保留。",
+      "TESpeedVOSR2* 是放大链；只出草稿时 --drop 'TESpeedVOSR2Image' 可跳过整个放大。"
+    ]
+  },
+  "qwen-fourview": {
+    "kind": "image-sheet",
+    "workflow": "▶▷Qwen-image21-图像编辑+生图流（整合）",
+    "branch": "edit (#482.switch=false, KSampler #481)",
+    "verified": "2026-10-05: 左侧肖像 + 右侧正/侧/背全身，横版 1248x832，实测通过",
+    "patch": {
+      "image": "#475.image",
+      "prompt": "#571.value",
+      "megapixels": "#532.megapixels",
+      "resolution": "#497.resolution",
+      "steps": "#481.steps",
+      "seed": "#502.seed",
+      "output": "#487.filename_prefix",
+      "negative": "#497.negative_prompt"
+    },
+    "drop": [
+      "#508",
+      "Image Comparer (rgthree)"
+    ],
+    "recipe": [
+      "1. 先用 PIL 拼一张横版底图（1536x1024，浅灰底，定妆照贴在左侧三分之一）——编辑分支的输出尺寸跟随输入图宽高比，横版底图才会得到横版四视图。",
+      "2. 提示词用显式「四格」描述：第1格面部特写 / 第2格正面全身 / 第3格侧面全身 / 第4格背面全身，四格等宽、同一个人、脚底同线。",
+      "3. denoise 必须保持 1：降到 0.62 会和 TE-Speed 缓存节点冲突，出重复纹理崩塌。",
+      "4. steps 30、megapixels 1.5、resolution 1024 是已验证参数。"
+    ],
+    "notes": [
+      "脚本：render_fourview.py（自动拼底图 + 上传 + 提交）"
+    ]
+  }
+}

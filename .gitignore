@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+_original-workflows/
+*.bak-*
+*.log
+.DS_Store
