@@ -4,6 +4,16 @@
 > 原 skill 全部按 Linux 写死（`~/ComfyUI`、`.venv/bin/python`、`pgrep`、`:` 分隔的路径列表），
 > 这里记录平台适配的做法，以及三个必须处理的坑。
 
+> ⚠️ **2026-10-09 更新**：skills 现在自带本机覆盖机制，
+> `install.ps1`（仓库根目录）是新的首选路线 ——
+> 它把路径写进 `skills/comfyui/local.json`、把节点 id 覆盖写进 `pipelines.local.json`，
+> 脚本本身保持上游原样（不再需要字符串替换），`run_film.py` 的看门狗也会按
+> `local.json` 的 `server_argv` 拉起 ComfyUI（带 `--fast-disk`）。
+> 因此 **本文的 `port_and_install.py` / `patch_local.py` 属于"当时那套脚本"的遗留路线**：
+> 它们的替换锚点针对旧版 `comfy.py` / `run_film.py`，直接对新版跑会因 `required` 匹配不到而报错。
+> 两条路**不要同时走**。本文仍然值得读的是：§1 skill 命名与注册、§3 幽灵节点、
+> §4 模型替代件、§6 实测结论。
+
 ---
 
 ## 0. 一次跑完

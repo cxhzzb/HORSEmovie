@@ -4,12 +4,23 @@
 
 **一句话**：skill 只有 128 KB，五分钟装完；花时间的是 **ComfyUI + 65 GB 模型 + 一堆自定义节点**。
 
-> **Windows 部署**：`install.sh` 是 bash 脚本，Windows 上请改用
-> [`ports/INSTALL-windows.md`](ports/INSTALL-windows.md)。它记录了 2026-10-08 在
-> Windows 11 + RTX 5060 Ti 上完成部署的全部改动，含三个必须处理的坑：
-> ① 文件系统 skill 发现机制失效 → 改用 `ports/dsh-plugin-horsemovie` 插件注册；
-> ② H3 加速工作流依赖的 `H3PromptEdit` / `H3PromptPolish` 节点包缺失 → 用本机副本绕过；
-> ③ 两个官方量化版模型不存在 → 用同架构替代件（`pipelines.json` 的 `auto_set` 自动替换）。
+> **Windows 部署（两条路，按情况选）**
+>
+> - **首选：`.\install.ps1`** —— 本仓库自带的一键安装：自动探测 ComfyUI Desktop /
+>   共享模型根 / 启动脚本，把 `--fast-disk` 写进 Desktop 的 launchArgs，装 skills +
+>   工作流 + API 图并跑 `doctor.py`。详见下文「Windows（ComfyUI Desktop）：用 `install.ps1`」。
+> - **文件系统 skill 发现机制失效时**：某些预设把宿主平面的 `skill-filesystem` 行 disabled，
+>   这时"把 skill 放进 `~/.dsh/skills`"不生效，得改用
+>   [`ports/dsh-plugin-horsemovie`](ports/dsh-plugin-horsemovie) 插件注册。
+>   完整记录见 [`ports/INSTALL-windows.md`](ports/INSTALL-windows.md)（2026-10-08 在
+>   Windows 11 + RTX 5060 Ti 上完成部署），含三个坑：① 发现机制失效 → 插件注册；
+>   ② H3 加速工作流依赖的 `H3PromptEdit` / `H3PromptPolish` 节点包缺失 → 用本机副本绕过；
+>   ③ 两个官方量化版模型不存在 → 用同架构替代件（`pipelines.json` 的 `auto_set` 自动替换）。
+>
+> ⚠️ `ports/port_and_install.py` / `ports/patch_local.py` 是**给当时那套 skill 脚本**做字符串替换的
+> （把路径改成 `_horse/config.py` 配置层）。现在 skills 自带 `local.json` / `pipelines.local.json`
+> 覆盖机制，两条路**不要同时走** —— 优先 `install.ps1`；若仍要用 `_horse` 路线，
+> 得先按新版脚本更新那些替换锚点。
 
 ---
 
