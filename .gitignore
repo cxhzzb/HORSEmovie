@@ -4,3 +4,23 @@ _original-workflows/
 *.bak-*
 *.log
 .DS_Store
+
+# 本机部署产物：每台机器的路径 / 节点 id 都不一样，不该进仓库
+local.json
+skills/comfyui/local.json
+skills/comfyui/pipelines.local.json
+skills/*/LOCAL.md
+_patch_utf8.py
+# 一次性的本机排障/迁移脚本
+_diag_paths.py
+_rewire_4prompt.py
+_extract_frames.py
+_fix_workflow_models.py
+_patch_utf8decode.py
+_compare_templates.py
+_measure_mv.py
+_mk_tespeed_variant.py
+_mk_tespeed_variants.py
+_mk_native_accel.py
+_run_ab.py
+_scratch/

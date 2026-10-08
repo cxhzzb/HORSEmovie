@@ -19,6 +19,18 @@ import subprocess
 import sys
 from pathlib import Path
 
+
+# --- Windows: the console codepage (GBK/cp936) cannot encode '▶' or Chinese
+# text, which every workflow name here contains. Force UTF-8 on stdout/stderr;
+# errors="replace" so a report never dies half-printed.
+import sys as _sys
+
+for _stream in (_sys.stdout, _sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 HERE = Path(__file__).resolve().parent
 COMFY = HERE / "comfy.py"
 PIPELINES = HERE / "pipelines.json"

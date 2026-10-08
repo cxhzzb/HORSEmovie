@@ -26,10 +26,40 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+
+# --- Windows: the console codepage (GBK/cp936) cannot encode '▶' or Chinese
+# text, which every workflow name here contains. Force UTF-8 on stdout/stderr;
+# errors="replace" so a report never dies half-printed.
+import sys as _sys
+
+for _stream in (_sys.stdout, _sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 HERE = Path(__file__).resolve().parent
 RENDER = HERE / "render_shots.py"
-PROJECTS = Path.home() / "comfy-projects"
-COMFY_DIR = Path.home() / "ComfyUI"
+HOME = Path.home()
+
+
+# --------------------------------------------------------------- 本机配置（部署时写入）
+# 与 comfy.py 共用同一个 local.json；env 优先。
+def _local_config() -> dict:
+    f = HERE / "local.json"
+    if f.is_file():
+        try:
+            # utf-8-sig：PowerShell 写出来的 JSON 可能带 BOM
+            return json.loads(f.read_text("utf-8-sig"))
+        except Exception:
+            return {}
+    return {}
+
+
+LOCAL = _local_config()
+PROJECTS = Path(os.environ.get("COMFY_PROJECTS", LOCAL.get("projects") or HOME / "comfy-projects"))
+COMFY_DIR = Path(LOCAL.get("comfy_base") or HOME / "ComfyUI")
+LAUNCHER = LOCAL.get("launcher")
 HOST = os.environ.get("COMFY_HOST", "127.0.0.1:8188")
 BOOT_TIMEOUT = 300          # seconds to wait for a cold start
 BOOT_POLL = 3
@@ -52,9 +82,20 @@ def server_up(timeout: float = 4.0) -> bool:
 
 
 def comfy_pid() -> str | None:
+    """PID of a running ComfyUI server, if we can tell (pgrep on POSIX)."""
     try:
+        if os.name == "nt":
+            out = subprocess.run(
+                ["wmic", "process", "where", "name='python.exe'", "get", "ProcessId,CommandLine"],
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15).stdout
+            for line in out.splitlines():
+                if "main.py" in line and "--port" in line:
+                    parts = line.split()
+                    if parts and parts[-1].isdigit():
+                        return parts[-1]
+            return None
         out = subprocess.run(["pgrep", "-f", "main.py --listen"],
-                             capture_output=True, text=True, timeout=10).stdout
+                             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10).stdout
     except Exception:
         return None
     pids = [p for p in out.split() if p.strip()]
@@ -62,29 +103,75 @@ def comfy_pid() -> str | None:
 
 
 def start_server() -> bool:
-    """Cold-start ComfyUI headless. Mirrors 启动ComfyUI.sh minus konsole/browser."""
-    py = COMFY_DIR / ".venv/bin/python"
-    if not py.exists():
-        log(f"!! cannot start: {py} missing")
-        return False
-    env = dict(os.environ)
-    ggml = COMFY_DIR / ".venv/lib/python3.12/site-packages/llama_cpp/lib"
-    if ggml.is_dir():
-        env["LD_LIBRARY_PATH"] = f"{ggml}{':' + env['LD_LIBRARY_PATH'] if env.get('LD_LIBRARY_PATH') else ''}"
+    """Cold-start ComfyUI headless.
+
+    优先级：local.json 的 `server_argv`（最准，能把 `--fast-disk`、模型路径配置等
+    原样带上）> local.json 的 `launcher`（.bat）> POSIX 的 venv python + main.py。
+
+    为什么非要 argv：H3 视频链路要 20GB 主模型 + 25GB 文本编码器，**必须**带 `--fast-disk`
+    才能从 NVMe mmap；不带的话 ComfyUI 会把权重往内存里拷，内存不够时实测卡 2 小时都进不到采样。
+    ComfyUI Desktop 自带的那个启动脚本里没有这个参数，所以只靠 .bat 会在"OOM 后自动拉起"
+    这条路上把整晚的批量渲染毁掉 —— 看门狗必须用与正常运行完全一致的命令行拉起服务。
+    """
     logf = open(PROJECTS / "_comfyui_autostart.log", "a", encoding="utf-8")
     logf.write(f"\n===== restart at {time.strftime('%Y-%m-%d %H:%M:%S')} =====\n")
-    logf.flush()
-    subprocess.Popen([str(py), "main.py", "--listen", "127.0.0.1", "--port", "8188"],
-                     cwd=str(COMFY_DIR), env=env, stdout=logf, stderr=subprocess.STDOUT,
-                     stdin=subprocess.DEVNULL, start_new_session=True)
-    log("ComfyUI 启动中 ...")
+
+    argv = LOCAL.get("server_argv") or []
+    cwd = LOCAL.get("server_cwd") or str(COMFY_DIR)
+
+    if argv:
+        exe = Path(argv[0])
+        if not exe.exists():
+            log(f"!! cannot start: {exe} missing")
+            logf.close()
+            return False
+        log("ComfyUI 启动中（local.json 的 server_argv）...")
+        logf.write("launch: " + " ".join(argv) + f"\ncwd: {cwd}\n")
+        logf.flush()
+        subprocess.Popen([str(a) for a in argv], cwd=cwd,
+                         stdout=logf, stderr=subprocess.STDOUT,
+                         stdin=subprocess.DEVNULL,
+                         creationflags=subprocess.DETACHED_PROCESS
+                         | subprocess.CREATE_NEW_PROCESS_GROUP)
+    elif os.name == "nt" and LAUNCHER:
+        launcher = Path(LAUNCHER)
+        if not launcher.exists():
+            log(f"!! cannot start: {launcher} missing")
+            logf.close()
+            return False
+        log(f"ComfyUI 启动中（{launcher.name}）...")
+        logf.write(f"launch: {launcher}\n")
+        logf.flush()
+        subprocess.Popen(["cmd", "/c", "start", "", str(launcher)],
+                         cwd=str(launcher.parent),
+                         stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
+                         stdin=subprocess.DEVNULL,
+                         creationflags=subprocess.DETACHED_PROCESS
+                         | subprocess.CREATE_NEW_PROCESS_GROUP)
+    else:
+        py = COMFY_DIR / ".venv/bin/python"
+        if not py.exists():
+            log(f"!! cannot start: {py} missing")
+            logf.close()
+            return False
+        env = dict(os.environ)
+        ggml = COMFY_DIR / ".venv/lib/python3.12/site-packages/llama_cpp/lib"
+        if ggml.is_dir():
+            env["LD_LIBRARY_PATH"] = f"{ggml}{':' + env['LD_LIBRARY_PATH'] if env.get('LD_LIBRARY_PATH') else ''}"
+        log("ComfyUI 启动中 ...")
+        subprocess.Popen([str(py), "main.py", "--listen", "127.0.0.1", "--port", "8188"],
+                         cwd=str(COMFY_DIR), env=env, stdout=logf, stderr=subprocess.STDOUT,
+                         stdin=subprocess.DEVNULL, start_new_session=True)
+
     deadline = time.time() + BOOT_TIMEOUT
     while time.time() < deadline:
         if server_up():
             log(f"ComfyUI 已就绪（{int(BOOT_TIMEOUT - (deadline - time.time()))}s）")
+            logf.close()
             return True
         time.sleep(BOOT_POLL)
-    log(f"!! ComfyUI 在 {BOOT_TIMEOUT}s 内没起来，见 ~/comfy-projects/_comfyui_autostart.log")
+    log(f"!! ComfyUI 在 {BOOT_TIMEOUT}s 内没起来，见 {PROJECTS / '_comfyui_autostart.log'}")
+    logf.close()
     return False
 
 

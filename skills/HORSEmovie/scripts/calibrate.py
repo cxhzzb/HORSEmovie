@@ -29,6 +29,18 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+
+# --- Windows: the console codepage (GBK/cp936) cannot encode '▶' or Chinese
+# text, which every workflow name here contains. Force UTF-8 on stdout/stderr;
+# errors="replace" so a report never dies half-printed.
+import sys as _sys
+
+for _stream in (_sys.stdout, _sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 HERE = Path(__file__).resolve().parent
 COMFY_SKILL = Path.home() / ".dsh/skills/comfyui"
 RENDER = COMFY_SKILL / "render_shots.py"
@@ -60,7 +72,7 @@ def gpu_report() -> dict:
     try:
         q = subprocess.run(
             ["nvidia-smi", "--query-gpu=name,memory.total,compute_cap",
-             "--format=csv,noheader"], capture_output=True, text=True, timeout=10).stdout.strip()
+             "--format=csv,noheader"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10).stdout.strip()
         if q:
             name, mem, cap = [x.strip() for x in q.split(",")]
             out.setdefault("name", name)
@@ -97,7 +109,7 @@ def run_one(project: str, shot: str, mp: float, dur: int, seed: int,
     sj.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", "utf-8")
 
     t0 = time.time()
-    r = subprocess.run(cmd, capture_output=True, text=True)
+    r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
     el = time.time() - t0
 
     target["dur"] = old                       # 还原

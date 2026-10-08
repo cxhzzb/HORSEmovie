@@ -30,6 +30,18 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
+
+# --- Windows: the console codepage (GBK/cp936) cannot encode '▶' or Chinese
+# text, which every workflow name here contains. Force UTF-8 on stdout/stderr;
+# errors="replace" so a report never dies half-printed.
+import sys as _sys
+
+for _stream in (_sys.stdout, _sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 PROJECTS = Path.home() / "comfy-projects"
 
 # --- audio analysis tuning -------------------------------------------------
@@ -45,7 +57,7 @@ VOICED_FLATNESS = 0.30    # informational only — NOT used for the verdict (see
 
 
 def sh(cmd: list[str]) -> str:
-    return subprocess.run(cmd, capture_output=True, text=True, check=True).stdout
+    return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", check=True).stdout
 
 
 def probe(path: Path) -> dict:

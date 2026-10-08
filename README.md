@@ -117,7 +117,31 @@ INSTALL.md                安装说明
 python3 doctor.py          # 自检缺什么
 ```
 
+Windows（ComfyUI Desktop）用 PowerShell 版本，做的是同一件事：
+
+```powershell
+.\install.ps1 -DryRun      # 自动探测 ComfyUI / 共享模型目录 / 启动脚本
+.\install.ps1              # 装 skills + 工作流 + API 图，写 --fast-disk，跑 doctor.py
+& <bundled python> doctor.py
+```
+
 详见 [`INSTALL.md`](INSTALL.md)。
+
+---
+
+## 实机落地记录（RTX 4070 SUPER 12G / Windows）
+
+一台真实机器上的完整标定与加速审计，结论都带实测数字：
+
+- **标定**：0.8 档 / 8 秒 = 6.0 分钟；1.0 档 / 8 秒 = 8.6 分钟 → 推荐 1.0 档，45 镜 ≈ 6.4 小时
+- **`--fast-disk` 是必需项**：不带的话 20GB+25GB 权重会往内存里拷，实测卡 2 小时进不到采样
+- **`EasyCache`（ComfyUI 自带）实测 1.28×**：0.8MP/8s 从 6.0 → 4.69 分钟，抽帧复验无问题
+- **第三方 `TE-Speed-MiniMaxH3` 在 ComfyUI 0.37 上跑不起来**（`FinalLayer` 签名不匹配，上新版也报错）
+- **`BlockSparseAttention` 对短视频无效**：序列 < `min_tokens` 12288 时保持 dense
+- **Windows / Desktop 四个坑**：`--fast-disk`、`SaveVideo` 不算输出节点、模型名分隔符、控制台 GBK
+
+细节见 [`skills/HORSEmovie/SKILL.md`](skills/HORSEmovie/SKILL.md) 文末附录、[`INSTALL.md`](INSTALL.md)
+的「Windows 实战补充」与「加速」两节。
 
 ---
 

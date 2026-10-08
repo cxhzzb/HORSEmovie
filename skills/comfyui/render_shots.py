@@ -20,14 +20,51 @@ import subprocess
 import sys
 from pathlib import Path
 
+
+# --- Windows: the console codepage (GBK/cp936) cannot encode '▶' or Chinese
+# text, which every workflow name here contains. Force UTF-8 on stdout/stderr;
+# errors="replace" so a report never dies half-printed.
+import sys as _sys
+
+for _stream in (_sys.stdout, _sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 HERE = Path(__file__).resolve().parent
 COMFY = HERE / "comfy.py"
 SKILL_PIPELINES = HERE / "pipelines.json"
 PROJECTS = Path.home() / "comfy-projects"
 
+
+def load_pipelines() -> dict:
+    """pipelines.json + 本机覆盖 pipelines.local.json（部署时写入，上游仓库里没有）。
+
+    本机的工作流节点 id 和源机器不一样（提示词链路换成了 TE_text_display），
+    覆盖文件把正确的 id 交进来，同时保持上游注册表原样。
+    """
+    data: dict = {}
+    for name in ("pipelines.json", "pipelines.local.json"):
+        f = HERE / name
+        if not f.is_file():
+            continue
+        try:
+            part = json.loads(f.read_text("utf-8-sig"))
+        except Exception as exc:
+            print(f"# warn: {name} 读不了: {exc}", file=sys.stderr)
+            continue
+        for k, v in part.items():
+            if isinstance(v, dict) and isinstance(data.get(k), dict):
+                data[k] = {**data[k], **v}
+            else:
+                data[k] = v
+    return data
+
+
 # Scene plates are fed to the video model as <Picture 2>. Any person in them
 # leaks into the shot as a second, uncontrolled character, so keep them empty.
-STILL_PIPELINE = "txt2img-qwen" if "txt2img-qwen" in json.loads(SKILL_PIPELINES.read_text("utf-8")) else "quick-txt2img"
+STILL_PIPELINE = "txt2img-qwen" if "txt2img-qwen" in load_pipelines() else "quick-txt2img"
 
 SCENE_NEGATIVE = ("人物，人，人脸，人体，人像，人群，人影，剪影，手，people, person, human, "
                   "human face, human body, portrait, crowd, silhouette of a person, hands, "
@@ -149,7 +186,7 @@ def main():
 
     project_dir = PROJECTS / args.project
     plan = json.loads((project_dir / "shots.json").read_text("utf-8"))
-    pipes = json.loads(SKILL_PIPELINES.read_text("utf-8"))
+    pipes = load_pipelines()
     selected = parse_shots(args.shots, plan["shots"])
     if not selected:
         raise SystemExit("no shots selected")

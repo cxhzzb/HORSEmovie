@@ -79,6 +79,124 @@ python3 -m venv .venv
 
 ---
 
+## Windows（ComfyUI Desktop）：用 `install.ps1`
+
+Windows 上不用 `install.sh`（那是给 Linux 的）。同一个包里有 PowerShell 版本：
+
+```powershell
+.\install.ps1 -DryRun        # 先看它要做什么，不改任何东西
+.\install.ps1                # 自动探测 CompyUI（含 ComfyUI Desktop）、装 skills + 工作流 + API 图、跑 doctor.py
+.\install.ps1 -Comfy 'F:\Comfy-Desktop\ComfyUI-Installs\ComfyUI\ComfyUI'
+.\install.ps1 -Force         # 同名工作流覆盖（先备份 .bak-时间戳；默认是不覆盖，另存 "(bundle)" 副本）
+```
+
+它和 `install.sh` 的差别（都是 Windows / Desktop 逼出来的）：
+
+| 事情 | Windows 上的实际情况 |
+|---|---|
+| ComfyUI 位置 | 常见是 ComfyUI Desktop：根目录是 `...\ComfyUI-Installs\ComfyUI\ComfyUI`，`install.ps1` 会读 `%APPDATA%\Comfy Desktop\installations.json` 自动找 |
+| 模型分两处 | Desktop 把 `models/` 拆成「安装目录」+ 一个共享目录。`install.ps1` 会从 `shared_model_paths.yaml` 读出来，写进 `local.json` 的 `extra_model_roots`，doctor.py 认它 |
+| 模型改名 | 同一台机器上 H3 文本编码器可能是 `qwen3vl_32b_h3_ultra_uncensored_heretic_int8_convrot`（而不是包里的 `..._minimax_h3_int8_convrot`），生图模型可能在 `Qwen\` 子目录里。用 `-ModelAlias @{'原名'='本机名'}` 告诉脚本，或写进 `local.json` 的 `model_aliases` |
+| 启动方式 | 没有 `启动ComfyUI.sh`。Desktop 的 `start_comfyui.bat` 才是无头启动入口，`install.ps1` 会把路径写进 `local.json`，`run_film.py` 的看门狗用它 |
+| 控制台编码 | Windows 控制台是 GBK，打印带 `▶▷` 的工作流名会 `UnicodeEncodeError`。包里的脚本已加 UTF-8 兜底 |
+| 本机覆盖文件 | `local.json`（路径）和 `pipelines.local.json`（节点 id）是**每台机器一份**的部署产物，不进仓库 |
+
+### ⚠️ DSH 只认 kebab-case 的 skill 名
+
+`/^[a-z0-9]+(?:-[a-z0-9]+)*$/` —— frontmatter 写成 `name: HORSEmovie` 这种驼峰/大写名，
+DSH **不报错、直接静默忽略整条 skill**（目录在、文件在，但会话里看不到，`skill` 工具也调不到）。
+包里已经改成 `name: horsemovie`（目录名保留 `HORSEmovie`）。`doctor.py` 现在会查这一条。
+
+---
+
+## Windows 实战补充（ComfyUI Desktop，实测踩出来的四条）
+
+在 Windows + ComfyUI Desktop 上部署时，下面四件事会让"看起来装好了"变成"跑不出片"：
+
+### 1. 用 `--fast-disk` 启动 ComfyUI
+
+H3 视频链路要 **20GB 主模型 + 25GB 文本编码器 + 5GB VAE**。ComfyUI 默认把权重**拷进内存**
+（日志 `Model storage policy: fast_disk=False`）。内存不够时（32GB 也够呛）Windows 会疯狂换页：
+实测**文本编码器阶段卡了 2 小时都没进到采样**，GPU 空转 99%；改成 `fast_disk=True`
+（权重直接从 NVMe mmap）后，**加载+采样+VAE 解码 ≈ 33 分钟出片**。
+
+ComfyUI Desktop 的启动参数写在 `%APPDATA%\Comfy Desktop\installations.json` 的
+`launchArgs` 里，加上 `--fast-disk` 即可（改完重启 ComfyUI；在 UI 里点 Restart 也会带上）。
+`./install.ps1` 会自动把 `--fast-disk` 写进去。
+
+### 2. `SaveVideo` 不被当输出节点 —— 会"成功"但不出片
+
+ComfyUI 0.37 的 `validate_prompt` 用 `class_.OUTPUT_NODE is True`（**身份**比较）收集输出节点，
+而 `SaveVideo` 是新式 comfy_api(V3) 节点，走不到这条路径；`object_info` 里它却是 `output_node=true`
+（那边用 `== True` 判）。后果：只要图里还有别的 output_node（`TE_text_display`、各种 prompt
+enhancer 都是），提交会 **542ms 返回 success 但一个视频都不产出**。
+
+`comfy.py` 现在提交时显式带 `partial_execution_targets`，并按 `--project/--shot` 只点名本次真正要的
+那个保存节点 —— 服务器的校验只看被点名节点的上游，点名太宽会把没在用的分支拉进来一起校验，
+而那些分支常常引用着早就删掉的输入图，直接 400。
+
+### 3. 模型名的分隔符要按服务器清单对齐
+
+同一份工作流在 Linux 上写 `Qwen/x.safetensors`，Windows 的清单里是 `Qwen\x.safetensors`，
+而 ComfyUI 的 combo 校验是**严格字符串比对**，于是报 `Value not in list`，看着像缺模型。
+`comfy.py` 现在拿服务器的 `object_info` 逐个核对，能在两种分隔符之间换的就换，换完还不在清单里的**报出来**。
+
+### 4. Windows 控制台是 GBK
+
+打印带 `▶▷` 的工作流名会 `UnicodeEncodeError: 'gbk'`。包里的脚本已强制 UTF-8 兜底；
+自己写脚本时记得 `sys.stdout.reconfigure(encoding="utf-8")`。
+
+**另一半的坑**：父进程捕获子进程输出时，`subprocess.run(..., text=True)` 在 Windows 上按**本地代码页（GBK）**
+解码 —— 而子进程（已经带 UTF-8 兜底）打印的是 UTF-8，于是 reader 线程抛
+`UnicodeDecodeError: 'gbk' codec can't decode byte 0xa4`，调用方只看到"失败"。
+`calibrate.py` 就因此把两次成功的渲染判成了 ✗。包里所有捕获输出的地方都补上了：
+
+```python
+subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+```
+
+---
+
+## 加速：换机器后先做一次"加速审计"（2026-10-08 实测）
+
+12G 显存跑 20GB 主模型 + 25GB 文本编码器，速度几乎完全由**分辨率 × 帧数**决定，
+跟工作流大小、分支多少没关系。实测（热机、`--fast-disk`，ComfyUI 0.37 + H3 int8）：
+
+| 配置 | 耗时 | 秒/(MP·帧) |
+|---|---|---|
+| 0.4MP / 5s / 4 步 | 1.3 分钟（含冷启动加载） | — |
+| 0.6MP / 8s / 8 步 | 4.2–4.4 分钟 | 2.19–2.29 |
+| **0.6MP / 8s / 8 步 + EasyCache** | **3.43 分钟** | 1.71 |
+| 0.8MP / 8s / 8 步 | 6.0 分钟 | 2.35 |
+| **0.8MP / 8s / 8 步 + EasyCache** | **4.69 分钟** | 1.84 |
+| 1.0MP / 8s / 8 步 | 8.6 分钟 | 2.68 |
+
+三条结论：
+
+1. **`EasyCache` 是唯一现成可用的加速**（ComfyUI 自带 `comfy_extras.nodes_easycache`，
+   接在 LoRA 之后、guider 之前）：默认 `reuse_threshold=0.2` 时 8 步**跳过 2 步**，
+   自报 `1.33x`，实测整体 **1.28×**。接法见下。
+2. **第三方 `TE-Speed-MiniMaxH3` 在 ComfyUI 0.37 上跑不起来**：
+   `TypeError: FinalLayer.forward() missing 3 required positional arguments:
+   'sigma', 'sample_sigmas', and 'shifts'`。上游最新（2026-09-06，"适配官方新版 H3 接口"）
+   同样报错；换 3 种接线都一样 —— 是插件与 ComfyUI 版本的签名不匹配。
+   （所以自己的工作流里那个节点是 bypass 状态，加速改走 turbo LoRA + 8 步。）
+3. **`BlockSparseAttention` 要序列够长才有用**：`min_tokens` 默认 12288，
+   而 0.6MP/8s 的 H3 latent 只有约 2565 token → 保持 dense，等于没开。
+   长镜头（15s）或 1.2MP 以上再考虑；三种方法里只有 `sol-attn` 免训练。
+
+想采 EasyCache，把它插到 model 链上即可（API 图里加一个节点）：
+
+```json
+"362": { "class_type": "EasyCache",
+         "inputs": { "model": ["140", 0], "reuse_threshold": 0.2,
+                     "start_percent": 0.15, "end_percent": 0.95, "verbose": true } }
+```
+然后把 guider 的 `model` 从 `["140",0]` 改到 `["362",0]`。
+每上一档都要**抽帧复验**：跳步会在动作和细节上体现出来。
+
+---
+
 ## 第 1 步：把迁移包拷过去
 
 `HORSEmovie-bundle.tar.gz`（128 KB）—— 邮件、U 盘、`scp` 都行。
@@ -223,7 +341,9 @@ rsync -avh ~/comfy-projects/tianlie/ 新机器:~/comfy-projects/tianlie/
 
 | 现象 | 原因 |
 |---|---|
-| DSH 认不出 skill | 目录层级错了。必须 `~/.dsh/skills/HORSEmovie/SKILL.md` |
+| DSH 认不出 skill | 目录层级错了。必须 `~/.dsh/skills/HORSEmovie/SKILL.md`**，且 frontmatter 的 `name` 必须是 kebab-case**（`horsemovie`，不是 `HORSEmovie`）——写成大写名 DSH 会静默忽略 |
+| 打印工作流名就崩（`UnicodeEncodeError: 'gbk'`） | Windows 控制台是 GBK。脚本里的 stdout 已强制 UTF-8；自己写脚本时记得 `sys.stdout.reconfigure(encoding="utf-8")` |
+| `Value not in list: unet_name` 但模型明明在 | 模型在子目录里（`Qwen\...`）或改了名。用 ComfyUI 里显示的名字；doctor.py 的 `model_aliases` 可以声明对应关系 |
 | `~/.dsh` 不存在 | DSH 还没跑过。第一次启动会创建 |
 | 工作流加载报红 | 自定义节点没装全（第 4 步） |
 | 报 `Value not in list: unet_name` | 模型文件名对不上（`models.txt` 标 ⚠️ 的那几个） |

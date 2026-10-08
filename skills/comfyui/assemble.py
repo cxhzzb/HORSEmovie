@@ -24,6 +24,18 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
+
+# --- Windows: the console codepage (GBK/cp936) cannot encode '▶' or Chinese
+# text, which every workflow name here contains. Force UTF-8 on stdout/stderr;
+# errors="replace" so a report never dies half-printed.
+import sys as _sys
+
+for _stream in (_sys.stdout, _sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 PROJECTS = Path.home() / "comfy-projects"
 
 
@@ -32,7 +44,7 @@ def probe(path: Path) -> dict:
         ["ffprobe", "-v", "error", "-select_streams", "v:0",
          "-show_entries", "stream=width,height,r_frame_rate,nb_frames",
          "-show_entries", "format=duration", "-of", "json", str(path)],
-        capture_output=True, text=True, check=True).stdout
+        capture_output=True, text=True, encoding="utf-8", errors="replace", check=True).stdout
     d = json.loads(out)
     st = d["streams"][0]
     num, _, den = st["r_frame_rate"].partition("/")

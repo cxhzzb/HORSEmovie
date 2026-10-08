@@ -31,16 +31,59 @@ import urllib.request
 import uuid
 from pathlib import Path
 
+
+# --- Windows: the console codepage (GBK/cp936) cannot encode '▶' or Chinese
+# text, which every workflow name here contains. Force UTF-8 on stdout/stderr;
+# errors="replace" so a report never dies half-printed.
+import sys as _sys
+
+for _stream in (_sys.stdout, _sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 HERE = Path(__file__).resolve().parent
 HOST = os.environ.get("COMFY_HOST", "127.0.0.1:8188")
 BASE = f"http://{HOST}"
 HOME = Path.home()
+
+
+# --------------------------------------------------------------- 本机配置（部署时写入）
+# local.json 放这台机器的实际路径（上游仓库里没有它）；env 变量优先级更高。
+# 路径变了改 local.json 就行，不用动代码。
+def _local_config() -> dict:
+    f = HERE / "local.json"
+    if f.is_file():
+        try:
+            # utf-8-sig：PowerShell 写出来的 JSON 可能带 BOM，别让 BOM 把配置吃掉
+            return json.loads(f.read_text("utf-8-sig"))
+        except Exception:
+            return {}
+    return {}
+
+
+LOCAL = _local_config()
+
 CACHE = Path(os.environ.get("COMFY_BRIDGE_CACHE", HOME / ".cache" / "dsh-comfy"))
-PROJECTS = Path(os.environ.get("COMFY_PROJECTS", HOME / "comfy-projects"))
-WORKFLOW_DIRS = [Path(p) for p in os.environ.get(
-    "COMFY_WORKFLOW_DIRS",
-    f"{HOME}/ComfyUI/user/default/workflows:{HOME}/ComfyUI/user",
-).split(":")]
+PROJECTS = Path(os.environ.get("COMFY_PROJECTS", LOCAL.get("projects") or HOME / "comfy-projects"))
+COMFY_BASE = Path(LOCAL.get("comfy_base") or HOME / "ComfyUI")
+LAUNCHER = LOCAL.get("launcher") or str(COMFY_BASE / "启动ComfyUI.sh")
+
+
+def _workflow_dirs() -> list:
+    raw = os.environ.get("COMFY_WORKFLOW_DIRS")
+    if raw:
+        # 用 os.pathsep：Windows 是 ';'，类 Unix 是 ':'。
+        # （旧写法写死 ':'，在 Windows 上会把 F:\... 按盘符切坏）
+        return [Path(p) for p in raw.split(os.pathsep) if p.strip()]
+    dirs = [Path(p) for p in LOCAL.get("workflow_dirs", [])]
+    if not dirs:
+        dirs = [HOME / "ComfyUI/user/default/workflows", HOME / "ComfyUI/user"]
+    return dirs
+
+
+WORKFLOW_DIRS = _workflow_dirs()
 
 WIDGET_SCALARS = {"INT", "FLOAT", "STRING", "BOOLEAN", "COMBO"}
 
@@ -442,15 +485,57 @@ class Converter:
 
 # --------------------------------------------------------------------------- patching
 
+def combo_options(oi: dict, class_type: str, field: str):
+    """服务器为某个节点的某个 combo 输入给出的可选值列表，取不到就 None。"""
+    spec = ((oi.get(class_type) or {}).get("input") or {})
+    for section in ("required", "optional"):
+        s = (spec.get(section) or {}).get(field)
+        if isinstance(s, list) and s and isinstance(s[0], list):
+            return s[0]
+    return None
+
+
+def fix_model_names(api: dict, oi: dict):
+    """把模型名对齐到这台服务器实际认的值。
+
+    为什么需要：ComfyUI 的 combo 校验是**严格字符串比对**（execution.py:
+    `val not in combo_options`），而模型名的分隔符各机器不一样 —— Windows 上
+    `folder_paths` 给出的是 `Qwen\\x.safetensors`，Linux 上是 `Qwen/x.safetensors`。
+    源机器（Linux）存的工作流是正斜杠，本机（Windows）认反斜杠，于是同一个文件
+    在两边只有一个能过校验（而且报出来的错是 "Value not in list"，看着像缺模型）。
+
+    这里不猜：拿服务器自己的清单逐个核对，能在两种分隔符之间换来换去的就换，
+    换完还不在清单里的**报出来**（那才是真的缺文件/名字变了）。
+    """
+    out = []
+    for nid, node in api.items():
+        inputs = node.get("inputs") or {}
+        for field, val in list(inputs.items()):
+            if not isinstance(val, str) or not _PATHISH.search(val):
+                continue
+            opts = combo_options(oi, node.get("class_type"), field)
+            if not opts or val in opts:
+                continue
+            alt = val.replace("/", "\\") if "/" in val else val.replace("\\", "/")
+            if alt in opts:
+                inputs[field] = alt
+                out.append(f"node {nid} {node.get('class_type')}.{field}: {val!r} -> {alt!r}（对齐本机分隔符）")
+            else:
+                close = [o for o in opts if Path(o).name == Path(val).name]
+                hint = f"；清单里有同名文件 {close[0]!r}" if close else ""
+                out.append(f"!! node {nid} {node.get('class_type')}.{field} = {val!r} 不在这台服务器的清单里{hint}")
+    return out
+
+
 def load_api_or_convert(path: Path, oi: dict):
     wf, is_api = load_workflow(path)
     if is_api:
-        return wf, []
+        return wf, fix_model_names(wf, oi)
     conv = Converter(oi)
     api = conv.convert(wf)
     if not api:
         raise SystemExit(f"conversion produced no nodes for {path}")
-    return api, conv.notes
+    return api, conv.notes + fix_model_names(api, oi)
 
 
 def node_label(nid, node):
@@ -508,8 +593,44 @@ def apply_set(api: dict, assignment: str):
 
 # ------------------------------------------------------------------ run / watch
 
-def submit(api: dict) -> dict:
+def execution_targets(api: dict, oi: dict, want: str | None = None) -> list:
+    """提交时显式点名这次要执行的输出节点。
+
+    为什么必须这么做（本机实测，ComfyUI 0.37.0）：`validate_prompt` 用
+    `class_.OUTPUT_NODE is True`（**身份**比较）收集输出节点，而 SaveVideo 这类新式
+    comfy_api(V3) 节点不走这条路径；object_info 里它明明是 output_node=true（那是用
+    `== True` 判的）。结果：只要图里还有别的 output_node（本机一堆 TE_text_display /
+    TE_H3_Prompt_Enhancer 都是），服务器就会**执行成功但一个视频都不产出**
+    （实测：542ms 返回 success，4 个 SaveVideo 一个没跑）。
+
+    另外：服务器只校验"被点名输出节点的上游"，所以点名范围要**窄**。一份工作流里
+    常见 4 条并行分支（Ref2V/T2V/I2V/FL2V），没在用的那几条可能引用着早已删掉的输入图；
+    把 4 个 SaveVideo 全点名会连带校验它们 → 直接 400。
+    `want`（一般是本次的 --project/--shot）用来在多个保存节点里挑出**这次真正要的那个**：
+    这些节点的 filename_prefix 就是 render_shots 设的 `dsh/<项目>/<镜号>`。
+    """
+    def is_out(node):
+        return bool((oi.get(node["class_type"]) or {}).get("output_node"))
+
+    save_like = ("Save", "Combine", "Preview", "Export", "VHS_")
+    saves = [nid for nid, n in api.items()
+             if is_out(n) and any(h in n["class_type"] for h in save_like)]
+    if saves and want:
+        needle = want.lower()
+        hit = [nid for nid in saves
+               if needle in str(api[nid]["inputs"].get("filename_prefix", "")).lower()]
+        if hit:
+            return hit
+    if saves:
+        return saves
+    return [nid for nid, n in api.items() if is_out(n)]
+
+
+def submit(api: dict, oi: dict | None = None, want: str | None = None) -> dict:
     payload = {"prompt": api, "client_id": f"dsh-{uuid.uuid4().hex[:8]}"}
+    targets = execution_targets(api, oi or object_info(), want)
+    if targets:
+        payload["partial_execution_targets"] = targets
     return http_json("/prompt", payload)
 
 
@@ -708,24 +829,58 @@ def cmd_convert(args):
     print(f"wrote {out}  ({len(api)} nodes)")
 
 
+def load_pipelines() -> dict:
+    """pipelines.json + 本机覆盖 pipelines.local.json（部署时写入，上游仓库里没有）。
+
+    工作流被用户改过之后节点 id 会变。覆盖文件让本机用正确的 id，
+    又不用把上游那份已验证的注册表改花（同名 key 覆盖，其余保留）。
+    """
+    data: dict = {}
+    for name in ("pipelines.json", "pipelines.local.json"):
+        f = HERE / name
+        if not f.is_file():
+            continue
+        try:
+            part = json.loads(f.read_text("utf-8-sig"))
+        except Exception as exc:
+            print(f"# warn: {name} 读不了: {exc}", file=sys.stderr)
+            continue
+        for k, v in part.items():
+            if isinstance(v, dict) and isinstance(data.get(k), dict):
+                data[k] = {**data[k], **v}
+            else:
+                data[k] = v
+    return data
+
+
 def registry_entry(path: Path):
-    """Find the pipelines.json entry that describes this workflow file."""
-    reg = HERE / "pipelines.json"
-    if not reg.exists():
-        return None, None
-    try:
-        data = json.loads(reg.read_text("utf-8"))
-    except Exception:
+    """Find the pipelines.json entry that describes this workflow file.
+
+    取**最具体**的那个匹配：先看文件名完全相等，再看匹配到的工作流/别名串最长的。
+    以前是"第一个子串命中"，结果 `video-main`（workflow=▶▷MiniMaxH3-加速视频流整合）
+    会把 `▶▷MiniMaxH3-加速视频流整合 有4个提示词 (本机).json` 也抢过去 ——
+    于是拿错了节点 id、还把只存在于另一个文件的 auto_drop 套上去。
+    """
+    data = load_pipelines()
+    if not data:
         return None, None
     name = path.name.lower()
+    stem = path.stem.lower()
+    best = (0, None, None)
     for key, entry in data.items():
         if key.startswith("_") or not isinstance(entry, dict):
             continue
         cands = [entry.get("workflow", "")] + list(entry.get("aliases") or [])
         for c in cands:
-            if c and Path(c).name.lower() in name:
-                return key, entry
-    return None, None
+            if not c:
+                continue
+            cname = Path(c).name.lower()
+            if cname not in name:
+                continue
+            score = len(cname) + (1000 if Path(c).stem.lower() == stem else 0)
+            if score > best[0]:
+                best = (score, key, entry)
+    return best[1], best[2]
 
 
 def drop_nodes(api: dict, selectors):
@@ -755,7 +910,15 @@ def cmd_run(args):
         if auto:
             print(f"registry {key}: auto-dropping {auto} (DSH writes the final prompt itself)")
             drops += auto
-    for nid, cls in drop_nodes(api, drops):
+    # auto_drop 是"尽力而为"：某个类在这份工作流里不存在（换了版本/换了文件）时只提示，
+    # 不能让整次运行挂掉 —— 之前 resolve_selector 会 SystemExit。
+    for sel in drops:
+        if sel.startswith("#"):
+            continue
+        if not any(n.get("class_type") == sel for n in api.values()):
+            print(f"note: auto/drop selector {sel!r} 在这份工作流里没有对应节点，跳过")
+    for nid, cls in drop_nodes(api, [s for s in drops if s.startswith("#")
+                                     or any(n.get("class_type") == s for n in api.values())]):
         print(f"dropped #{nid} ({cls})")
     if entry and not args.no_auto_drop:
         for target, value in (entry.get("auto_set") or {}).items():
@@ -775,7 +938,17 @@ def cmd_run(args):
         print(json.dumps(api, ensure_ascii=False, indent=2)[:4000])
         return
     try:
-        res = submit(api)
+        oi = object_info()
+        want = args.shot or getattr(args, "project", None)
+        targets = execution_targets(api, oi, want)
+        if targets:
+            print("execute targets: " + ", ".join(
+                f"#{t} {api[t]['class_type']}" for t in targets if t in api))
+            if len(targets) > 1:
+                print("note: 点名了多个输出节点 —— 服务器会连带校验它们各自的上游；"
+                      "没在用的分支若引用着已删掉的输入图会 400。"
+                      "用 --shot <本次镜号> 可以把校验缩到这一次真正要出的那条分支。")
+        res = submit(api, oi, want)
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8", "replace")
         print(f"submission rejected (HTTP {e.code}):", file=sys.stderr)
@@ -1082,7 +1255,7 @@ def main():
 
     args = ap.parse_args()
     if args.cmd != "help" and not api_alive():
-        raise SystemExit(f"ComfyUI not reachable at {BASE} — start it with ~/ComfyUI/启动ComfyUI.sh")
+        raise SystemExit(f"ComfyUI not reachable at {BASE} — start it with {LAUNCHER}")
     args.func(args)
 
 

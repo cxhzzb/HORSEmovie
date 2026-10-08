@@ -1,5 +1,5 @@
 ---
-name: HORSEmovie
+name: horsemovie
 description: Produce a finished AI micro-film end to end on the user's local ComfyUI + MiniMax H3 — turn a script into beats, lock characters with keyframes, generate dialogue-bearing shots with the official H3 prompt format, then verify every shot (identity, no ghosting, speech present, no BGM) and assemble a cut. Also the home of the user's locked production standard and the failure catalogue for this pipeline.
 whenToUse: Use whenever the user wants a story turned into video (微电影 / AI 短片 / 短剧 / 剧集 / 一条片子), continues or revises 《归墟·天裂》, asks how to write MiniMax H3 video prompts, asks about 台词/配音/环境音/景别/关键帧/角色一致性 in video, or wants the film production standard applied or amended.
 ---
@@ -42,11 +42,11 @@ whenToUse: Use whenever the user wants a story turned into video (微电影 / AI
 |---|---|---|
 | 模式 | **I2VA（关键帧当首帧）** | Ref2VA 全参考直出**会换脸**（同一镜跑三次得到三张不同的脸、共工从 42 岁变年轻） |
 | 关键帧 | 编辑分支 + 定妆照 | 编辑分支锁脸可靠；它是唯一能稳定复现同一张脸的环节 |
-| 分辨率 | **0.8 档 = 1216×672** ⚠️硬件相关 | 工作流 Note #118 有对照表；换机器要重测 |
+| 分辨率 | **0.8 档 = 1216×672** ⚠️硬件相关 | 工作流 Note #118 有对照表；**换机器必须重跑 `calibrate.py`**，结果写进那台机器的 `LOCAL.md`（本机实测值见文末附录） |
 | 采样步数 | **8 步** | 4 步会发软；8 步是 turbo LoRA 的设计点 |
 | 加速 LoRA 强度 | **1.0** | 0.75 会掉细节 |
 | 加速度补丁 | **必须有 `MiniMaxH3MemoryEfficientSageAttentionPatch`** | 没有它慢 2.9 倍 |
-| 单次时长 | **6–8 秒** ⚠️硬件相关 | H3 官方上限 15 秒；8G 显存只敢用 6–8 秒 |
+| 单次时长 | **6–8 秒** ⚠️硬件相关 | H3 官方上限 15 秒；8G 显存只敢用 6–8 秒（12G 可上 8 秒，见附录） |
 | 景别变化 | **用硬切（cut），不用推镜** | 推镜会让模型"再画一个人"（重影） |
 | 台词期间的机位 | **固定机位（Static Shot）** | 官方指导；叠运镜会出伪影 |
 | 人声 | 官方 `<d>[Chinese] …</d>` 写法 | 原生生成，口型同步 |
@@ -212,3 +212,60 @@ non_diegetic_music: N/A
 - [ ] 关键帧过了 `qa_frames.py`
 - [ ] 出片后过了 `qa_shot.py` 和人工看帧
 - [ ] **换了机器/换了模型来源** → 先跑 `doctor.py` + `calibrate.py`，并重做一次身份验证
+
+---
+
+## 附：实机标定与加速审计（RTX 4070 SUPER 12G · Windows · 2026-10-08）
+
+一台真实机器上的完整落地记录。**这些数字属于那台机器**，标准表里的 ⚠️ 两项仍以你自己
+`calibrate.py` 的结果为准；方法论与坑是通用的。
+
+### 标定结果（`calibrate.py`，8 步 / LoRA 1.0 / SageAttention 补丁）
+
+| 档位 | 分辨率 | 时长 | 帧 | 单镜耗时（热机） |
+|---|---|---|---|---|
+| 0.8 | 1216×672 | 8s | 192 | 6.0 分钟 |
+| **1.0** | **1376×768** | 8s | 192 | **8.6 分钟** ← 推荐 |
+
+关键帧（Qwen 编辑分支 1.5MP / 30 步）≈ 12.7 分钟。**第一镜要额外付模型加载**
+（那台机器冷启动第一镜连加载带出片 ≈ 44 分钟）。
+
+### 效率口径：秒 /（MP·帧）
+
+| 配置 | 秒/(MP·帧) |
+|---|---|
+| 0.6MP / 8s / 8 步 | 2.19–2.29 |
+| 0.8MP / 8s / 8 步 | 2.35 |
+| 1.0MP / 8s / 8 步 | 2.68 |
+
+→ 速度几乎只由**分辨率 × 帧数**决定，跟工作流大小（22 节点 API 图 vs 169 节点 UI 图）
+无关：同一设置下两者 4.2 vs 4.4 分钟。想快就降像素/帧数。
+
+### 加速手段审计（都实测过）
+
+| 手段 | 结论 |
+|---|---|
+| `--fast-disk` 启动 ComfyUI | **必需**。默认把 20GB+25GB 权重拷进内存，内存不够时换页，实测卡 2 小时进不到采样；改 mmap 后 33 分钟出片 |
+| **`EasyCache`**（ComfyUI 自带 `comfy_extras`） | **可用，1.28×**：`reuse_threshold=0.2` 时 8 步跳 2 步（自报 1.33×）。0.6MP/8s 4.4→3.43 分钟；0.8MP/8s 6.0→4.69 分钟。抽帧复验身份/重影正常 |
+| `TE-Speed-MiniMaxH3`（第三方缓存插件） | **不可用**：ComfyUI 0.37 上 `TypeError: FinalLayer.forward() missing 3 required positional arguments: 'sigma', 'sample_sigmas', 'shifts'`。上游 2026-09-06 的"适配新版 H3 接口"版本同样报错，3 种接线都一样 → 插件与版本签名不匹配 |
+| `BlockSparseAttention`（H3 专用） | 序列 < `min_tokens`(12288) 时保持 dense → 0.6MP/8s 只有约 2565 token，**用不上**；15 秒长镜 / 1.2MP 以上再考虑，且只有 `sol-attn` 免训练 |
+| 4 步 + lightx2v LoRA | ≈2× 但**发软**（标准表已经因为画质放弃了它） |
+
+### Windows / ComfyUI Desktop 四个坑（都会让"装好了"变成"跑不出片"）
+
+1. `--fast-disk`（见上）。写进 Comfy Desktop 的 `installations.json → launchArgs`，并把
+   完整命令行写进 `local.json` 的 `server_argv`（`run_film.py` 看门狗按它拉起，否则冷启动又变慢）。
+2. **`SaveVideo` 不被当输出节点**：ComfyUI 0.37 的 `validate_prompt` 用 `OUTPUT_NODE is True`
+   （身份比较）收集输出，V3 节点 `SaveVideo` 走不到 → 图里只要有别的 output_node，
+   提交会"成功"却不出片。`comfy.py` 现在显式传 `partial_execution_targets`，并按 `--project/--shot`
+   只点名本次那条分支（点名太宽会把没启用的分支拉进来校验 → 400）。
+3. **模型名分隔符**：Linux 写 `Qwen/x`、Windows 清单是 `Qwen\x`，combo 是严格字符串比较，
+   报 `Value not in list` 看着像缺模型。`comfy.py` 会拿服务器清单自动对齐，对不上的报出来。
+4. **GBK**：控制台打印 `▶▷` 会 `UnicodeEncodeError`；父进程用 `subprocess.run(text=True)`
+   捕获子进程输出也按 GBK 解码（`calibrate.py` 因此把成功的渲染判成失败）→ 都要显式
+   `encoding="utf-8"`。
+
+### 身份验证（换了机器/模型来源必做）
+
+定妆照 → 关键帧（编辑分支）→ I2VA → 抽帧对比：三帧（1.0s / 2.58s / 4.67s）脸型、发型、
+发簪、旗袍一致，无重影，台词有声、环境音在、无 BGM —— 通过。之后才开正式生产。
