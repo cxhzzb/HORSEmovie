@@ -4,6 +4,13 @@
 
 **一句话**：skill 只有 128 KB，五分钟装完；花时间的是 **ComfyUI + 65 GB 模型 + 一堆自定义节点**。
 
+> **Windows 部署**：`install.sh` 是 bash 脚本，Windows 上请改用
+> [`ports/INSTALL-windows.md`](ports/INSTALL-windows.md)。它记录了 2026-10-08 在
+> Windows 11 + RTX 5060 Ti 上完成部署的全部改动，含三个必须处理的坑：
+> ① 文件系统 skill 发现机制失效 → 改用 `ports/dsh-plugin-horsemovie` 插件注册；
+> ② H3 加速工作流依赖的 `H3PromptEdit` / `H3PromptPolish` 节点包缺失 → 用本机副本绕过；
+> ③ 两个官方量化版模型不存在 → 用同架构替代件（`pipelines.json` 的 `auto_set` 自动替换）。
+
 ---
 
 ## 总览：三条命令

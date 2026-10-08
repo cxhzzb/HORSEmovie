@@ -1,0 +1,9 @@
+# 注册本地 HORSEmovie / comfyui skill。
+# skillsRoot 指向装了这两个 skill 的目录；不写则用 $HORSE_SKILLS_ROOT，
+# 再退回 <当前用户>/.dsh/skills。
+# 安装：plugin_manager(action: install_bundle, target: "<本目录绝对路径>")
+- insert:
+    - id: skill-horsemovie-local
+      name: '@local/dsh-skill-horsemovie'
+      config:
+        skillsRoot: C:/DEEPHARNESS/skills

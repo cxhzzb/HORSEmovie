@@ -21,7 +21,20 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-HOME = Path.home()
+# --- _horse 配置层：平台相关路径集中在这里（Linux + Windows）-----------------
+import sys as _sys
+from pathlib import Path as _Path
+for _p in (2, 1, 3):
+    try:
+        _cand = _Path(__file__).resolve().parents[_p] / "_horse"
+    except IndexError:
+        continue
+    if (_cand / "config.py").is_file():
+        _sys.path.insert(0, str(_cand))
+        break
+import config as _horse_config  # noqa: E402
+
+HOME = _horse_config.HOME
 
 # ---- 期望存在的东西（体积单位 GB，None = 不校验大小）-----------------------
 MODELS = [
@@ -108,7 +121,7 @@ def check_python(rep: Report) -> None:
 
 def check_skills(rep: Report) -> None:
     rep.head("【DSH skills】")
-    root = HOME / ".dsh/skills"
+    root = _horse_config.SKILLS
     if not root.is_dir():
         rep.bad(f"没有 {root}", "这台机器可能没装 DSH；skill 必须在 DSH 里才能用")
         return
@@ -132,11 +145,11 @@ def check_comfy(rep: Report, comfy: Path) -> None:
         rep.bad(f"没有 {comfy}", "先装 ComfyUI，或用 --comfy 指定位置")
         return
     rep.ok(f"ComfyUI 目录: {comfy}")
-    launcher = comfy / "启动ComfyUI.sh"
+    launcher = comfy / ("启动ComfyUI.bat" if os.name == "nt" else "启动ComfyUI.sh")
     if launcher.exists():
-        rep.ok("启动脚本 启动ComfyUI.sh 在")
+        rep.ok(f"启动脚本 {launcher.name} 在")
     else:
-        rep.warn("没找到 启动ComfyUI.sh", "run_film.py 的看门狗按这个脚本的逻辑拉起服务；"
+        rep.warn(f"没找到 {launcher.name}", "run_film.py 的看门狗按这个脚本的逻辑拉起服务；"
                                           "没有它就得自己保证服务器常开")
 
     rep.head("【工作流文件】")
@@ -163,18 +176,19 @@ def check_comfy(rep: Report, comfy: Path) -> None:
 
 def check_models(rep: Report, comfy: Path) -> None:
     rep.head("【模型】")
-    mroot = comfy / "models"
     total = 0.0
     missing_required = 0
     for rel, gb, required in MODELS:
-        p = mroot / rel
-        if p.is_file():
+        p = _horse_config.find_model(rel)
+        if p is not None:
             size = p.stat().st_size / 1024 ** 3
             total += size
             flag = "" if gb is None or abs(size - gb) < max(0.3, gb * 0.15) else f"  ⚠ 体积异常（预期 {gb} GB）"
-            rep.ok(f"{size:5.1f} GB  {rel}{flag}")
+            where = "" if p.parent == comfy / "models" else f"   [{p.parent}]"
+            rep.ok(f"{size:5.1f} GB  {rel}{flag}{where}")
         elif required:
-            rep.bad(f"缺失  {rel}", "见 models.txt")
+            rep.bad(f"缺失  {rel}",
+                    "见 models.txt（也可能是量化版文件名不同，改工作流里的名字即可）")
             missing_required += 1
         else:
             rep.warn(f"没有  {rel}（可选）", "本项目未用到，可不装")
@@ -196,13 +210,13 @@ def check_server(rep: Report) -> None:
                    f"显存 {(dev.get('vram_total', 0) - dev.get('vram_free', 0)) / 1024**3:.1f} / "
                    f"{dev.get('vram_total', 0) / 1024**3:.1f} GB 已用")
     except (urllib.error.URLError, OSError, TimeoutError):
-        rep.warn(f"{host} 没在跑", "出片前先 ~/ComfyUI/启动ComfyUI.sh；"
-                                   "run_film.py 也能自动拉起（需 启动ComfyUI.sh 在场）")
+        rep.warn(f"{host} 没在跑", f"出片前先启动 ComfyUI（{_horse_config.COMFY_DIR}）；"
+                                   "run_film.py 也能自动拉起")
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--comfy", default=str(HOME / "ComfyUI"))
+    ap.add_argument("--comfy", default=str(_horse_config.COMFY_DIR))
     ap.add_argument("--quiet", action="store_true")
     args = ap.parse_args()
 

@@ -1,0 +1,19 @@
+{
+  "name": "@local/dsh-skill-horsemovie",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Register the local HORSEmovie / comfyui DSH skills from code, bypassing filesystem skill discovery.",
+  "exports": {
+    ".": "./index.js"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "meta": {
+    "title": "HORSEmovie 本地技能",
+    "description": "用代码注册 HORSEmovie 与 comfyui 两个 skill，绕开本机失效的文件系统 skill 发现。"
+  }
+}
