@@ -205,7 +205,7 @@ $PY run_film.py --project <项目> --stage motion --via i2v --shots all --dry-ru
 
 ```bash
 PY=<load_workspace_dependencies 返回的 python 路径>
-$PY ~/.dsh/skills/HORSEmovie/scripts/calibrate.py --project <项目> --shot <镜号>
+$PY ~/.dsh/skills/horsemovie/scripts/calibrate.py --project <项目> --shot <镜号>
 ```
 
 它由小到大试一组配置，**遇到失败就停**（说明顶到上限），最后给出推荐档位与全片排期。

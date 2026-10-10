@@ -5,7 +5,7 @@
 .DESCRIPTION
   把这套 AI 微电影生产线装到本机：
     1. 检查前置（~/.dsh、ComfyUI、启动脚本）
-    2. skills → ~/.dsh/skills（HORSEmovie + comfyui），并写入本机 local.json
+    2. skills → ~/.dsh/skills（horsemovie + comfyui），并写入本机 local.json
     3. 工作流 → <ComfyUI>\user\default\workflows（同名默认不覆盖，另存 "(bundle)" 副本）
     4. API 图 → ~\comfy-projects\_pipelines
     5. 点名核对必需模型（认 ComfyUI Desktop 的共享模型目录）
@@ -174,10 +174,11 @@ $localJson = [ordered]@{
   extra_model_roots = @($ExtraModels)
   model_aliases = $ModelAlias
 }
-foreach ($s in @('HORSEmovie', 'comfyui')) {
-  $src = Join-Path $Bundle "skills\$s"
-  $dst = Join-Path $SkillsDir $s
-  if (-not (Test-Path $src)) { Bad "包里没有 $s"; continue }
+# DSH 只认 kebab-case 的 skill 名；仓库里目录名与 frontmatter 的 name 都已经是 kebab-case。
+foreach ($name in @('horsemovie', 'comfyui')) {
+  $src = Join-Path $Bundle "skills\$name"
+  $dst = Join-Path $SkillsDir $name
+  if (-not (Test-Path $src)) { Bad "包里没有 $name"; continue }
   # 本机文件（路径 / 节点 id / 标定结果 / 本机说明）要保住：复制前挪走、复制后放回。
   # 否则重装一次就把这台机器攒下的 local.json / pipelines.local.json / LOCAL.md 覆盖掉了。
   $keep = @()
@@ -193,9 +194,9 @@ foreach ($s in @('HORSEmovie', 'comfyui')) {
   foreach ($pair in $keep) {
     Run { Copy-Item $pair[1] (Join-Path $dst $pair[0]) -Force }
     Run { Remove-Item $pair[1] -Force }
-    Warn "$s\$($pair[0]) 是本机文件，已保留（没被包里的版本覆盖）"
+    Warn "$name\$($pair[0]) 是本机文件，已保留（没被包里的版本覆盖）"
   }
-  Ok "$s -> $dst"
+  Ok "$name -> $dst"
 }
 $localPath = Join-Path $SkillsDir 'comfyui\local.json'
 if (Test-Path $localPath) { Warn "local.json 已存在，保留（要重写先删掉它）" }
@@ -304,7 +305,7 @@ Write-Host " 装完了。接下来："
 Write-Host "================================================================"
 Write-Host "  1. 补齐上面标 x 的模型和自定义节点"
 Write-Host "  2. 起 ComfyUI：  $Launcher（Desktop 用户直接开 Comfy Desktop；--fast-disk 已写进 launchArgs）"
-Write-Host "  3. 读 skills\HORSEmovie\LOCAL.md：本机与源机器的差异、已完成的标定与身份验证结果"
+Write-Host "  3. 读 skills\horsemovie\LOCAL.md：本机与源机器的差异、已完成的标定与身份验证结果"
 Write-Host "  4. 换机器/换模型来源后要重做：标定 + 身份验证"
-Write-Host "       & `"$PY`" `"$SkillsDir\HORSEmovie\scripts\calibrate.py`" --project <项目> --shot <镜号>"
+Write-Host "       & `"$PY`" `"$SkillsDir\horsemovie\scripts\calibrate.py`" --project <项目> --shot <镜号>"
 Write-Host ""

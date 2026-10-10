@@ -57,7 +57,7 @@ whenToUse: Use whenever the user wants a story turned into video (微电影 / AI
 **标了 ⚠️ 的两项是在 RTX 4070 Laptop 8G 上标定的，换机器必须重测**：
 
 ```bash
-$PY ~/.dsh/skills/HORSEmovie/scripts/calibrate.py --project <项目> --shot <镜号>
+$PY ~/.dsh/skills/horsemovie/scripts/calibrate.py --project <项目> --shot <镜号>
 ```
 
 它由小到大试一组配置、遇到失败就停，最后给出新机器的推荐档位与全片排期
@@ -181,7 +181,7 @@ non_diegetic_music: N/A
 ## 6. 文件地图
 
 ```
-~/.dsh/skills/HORSEmovie/
+~/.dsh/skills/horsemovie/
 ├── SKILL.md                      ← 你正在读的
 ├── references/
 │   ├── prompt-format.md          ← H3 官方提示词规范、模板、范例

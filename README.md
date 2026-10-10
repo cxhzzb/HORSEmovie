@@ -50,7 +50,7 @@
 
 ```
 skills/
-├── HORSEmovie/           生产线总纲
+├── horsemovie/           生产线总纲
 │   ├── SKILL.md              已锁定的生产标准 + 开工自检
 │   ├── references/
 │   │   ├── prompt-format.md  H3 官方提示词规范、模板、禁用词
@@ -91,7 +91,7 @@ INSTALL.md                安装说明
 | 画面出现纯灰方块 | 编辑分支没重绘整块画布，换 seed 重出 |
 | 时长换算对不上 | 帧数 = **5 + 17k**（24fps） |
 
-完整版在 [`skills/HORSEmovie/references/pitfalls.md`](skills/HORSEmovie/references/pitfalls.md)。
+完整版在 [`skills/horsemovie/references/pitfalls.md`](skills/horsemovie/references/pitfalls.md)。
 
 ---
 
@@ -140,7 +140,7 @@ Windows（ComfyUI Desktop）用 PowerShell 版本，做的是同一件事：
 - **`BlockSparseAttention` 对短视频无效**：序列 < `min_tokens` 12288 时保持 dense
 - **Windows / Desktop 四个坑**：`--fast-disk`、`SaveVideo` 不算输出节点、模型名分隔符、控制台 GBK
 
-细节见 [`skills/HORSEmovie/SKILL.md`](skills/HORSEmovie/SKILL.md) 文末附录、[`INSTALL.md`](INSTALL.md)
+细节见 [`skills/horsemovie/SKILL.md`](skills/horsemovie/SKILL.md) 文末附录、[`INSTALL.md`](INSTALL.md)
 的「Windows 实战补充」与「加速」两节。
 
 ---

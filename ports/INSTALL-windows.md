@@ -26,7 +26,7 @@ python C:\DEEPHARNESS\HORSEmovie-port\port_and_install.py
 
 | 步骤 | 内容 |
 |---|---|
-| 1 | 把 `skills/HORSEmovie` 与 `skills/comfyui` 装到 skill 根目录，**目录名与 frontmatter `name` 统一为 kebab-case**（`horsemovie`） |
+| 1 | 把 `skills/horsemovie` 与 `skills/comfyui` 装到 skill 根目录（目录名与 frontmatter `name` 都是 kebab-case） |
 | 2 | 逐文件做平台移植（见第 2 节） |
 | 3 | 装三个工作流到 `ComfyUI\user\default\workflows\`（同名先备份 `.bak-时间戳`） |
 | 4 | 打本机补丁（见 `patch_local.py`），并把 skill 同步到自定义根 |
@@ -47,11 +47,15 @@ const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 ctx.logger.warn(`skill file ${path} ignored: invalid skill name "${name}"`);
 ```
 
-上游的 `name: HORSEmovie` 含大写，**不匹配**，会被静默忽略（只写一条 warn 日志，模型目录里看不到）。
-所以移植时必须同时改：
+**当年踩的坑**：上游 frontmatter 写的是 `name: HORSEmovie`（含大写），**不匹配**，会被静默忽略
+（只写一条 warn 日志，模型目录里看不到）。仓库现在已经是 kebab-case：源码目录 `skills/horsemovie/`、
+frontmatter `name: horsemovie`，装出来就是 `~/.dsh/skills/horsemovie/`，目录名与 `name` 一致。
 
-- 目录名：`skills/HORSEmovie/` → `skills/horsemovie/`
-- frontmatter：`name: HORSEmovie` → `name: horsemovie`
+> 手上如果是旧版包，两处都要改：
+> 目录名 `skills/HORSEmovie/` → `skills/horsemovie/`，frontmatter `name: HORSEmovie` → `name: horsemovie`。
+> 旧版 `install.sh` 落地的 `~/.dsh/skills/HORSEmovie/` 只要 frontmatter 是 `name: horsemovie` 就**照样能加载**
+> （DSH 取的是 frontmatter 的 `name`，目录名不参与校验），但和文档、插件里的 `horsemovie` 对不上，
+> `doctor.py` 会提示改名。
 
 ### 1.2 用 Cordis 插件注册，不要依赖文件扫描
 

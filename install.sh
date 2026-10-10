@@ -55,7 +55,10 @@ say "检查前置"
 # ---------------------------------------------------------------- skills
 say "安装 DSH skills"
 mkdir -p "$SKILLS_DIR"
-for s in HORSEmovie comfyui; do
+# DSH 只认 kebab-case 的 skill 名（^[a-z0-9]+(?:-[a-z0-9]+)*$），
+# 不合法（如 HORSEmovie）会被**静默忽略**（只写一条 warn 日志）。
+# 仓库里目录名与 frontmatter 的 name 都已经是 kebab-case，原样落地即可。
+for s in horsemovie comfyui; do
   src="$BUNDLE/skills/$s"; dst="$SKILLS_DIR/$s"
   if [[ ! -d "$src" ]]; then bad "包里没有 $s"; continue; fi
   if [[ -e "$dst" && $FORCE -eq 0 ]]; then
@@ -66,7 +69,7 @@ for s in HORSEmovie comfyui; do
   run cp -r "$src" "$dst"
   ok "$s → $dst"
 done
-find "$SKILLS_DIR/HORSEmovie" "$SKILLS_DIR/comfyui" -name __pycache__ -type d \
+find "$SKILLS_DIR/horsemovie" "$SKILLS_DIR/comfyui" -name __pycache__ -type d \
      -exec rm -rf {} + 2>/dev/null || true
 
 # ---------------------------------------------------------------- 工作流
@@ -153,7 +156,7 @@ echo " 装完了。接下来："
 echo "================================================================"
 echo "  1. 补齐上面标 ✗ 的模型和自定义节点"
 echo "  2. 起 ComfyUI：  $COMFY/启动ComfyUI.sh"
-echo "  3. 标定新机器：  python3 $BUNDLE/../HORSEmovie-bundle/skills/HORSEmovie/scripts/calibrate.py \\"
+echo "  3. 标定新机器：  python3 $SKILLS_DIR/horsemovie/scripts/calibrate.py \\"
 echo "                     --project <项目> --shot <镜号>"
 echo "  4. 拿一镜做身份验证（关键帧 → I2VA → 抽帧对比 refs/character_*.png）"
 echo

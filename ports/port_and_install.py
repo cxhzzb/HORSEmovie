@@ -209,10 +209,11 @@ HOST = _horse_config.HOST''')
     # ------------------------------------ skill 名必须是 kebab-case
     # DSH 的 filesystem provider 用 ^[a-z0-9]+(?:-[a-z0-9]+)*$ 校验 name，
     # 不匹配的文件会被【静默忽略】（只写一条 warn 日志），skill 直接进不了目录。
-    # 上游原来是 HORSEmovie（含大写）——在本机必须改成 horsemovie。
+    # 仓库现在已经是 horsemovie（目录名与 frontmatter 都是），所以下面三条只对旧版包生效，
+    # 匹配不到就跳过（required=False），不算错误。
     f = horse / "SKILL.md"
-    p.sub(f, "\nname: HORSEmovie\n", "\nname: horsemovie\n")
-    p.sub(f, "~/.dsh/skills/HORSEmovie/", "~/.dsh/skills/horsemovie/")
+    p.sub(f, "\nname: HORSEmovie\n", "\nname: horsemovie\n", required=False)
+    p.sub(f, "~/.dsh/skills/HORSEmovie/", "~/.dsh/skills/horsemovie/", required=False)
     p.sub(f, "`~/.dsh/skills/HORSEmovie/scripts/calibrate.py`",
           "`~/.dsh/skills/horsemovie/scripts/calibrate.py`", required=False)
 
@@ -290,10 +291,10 @@ def main() -> int:
     print(f"  模式   : {'DRY-RUN' if args.dry_run else '实际写入'}")
     print("=" * 70)
 
-    # 1) 拷贝两个 skill。目标目录名也必须是 kebab-case —— DSH 是按
-    #    <root>/<name>/SKILL.md 找，且 name 要过正则，目录名同时就是 skill id。
+    # 1) 拷贝两个 skill。目录名统一成 kebab-case（仓库里已经是 horsemovie/）——
+    #    DSH 校验的是 frontmatter 的 name，目录名只是载体，两者一致最不容易出错。
     skills.mkdir(parents=True, exist_ok=True)
-    for src_name, dst_name in (("HORSEmovie", "horsemovie"), ("comfyui", "comfyui")):
+    for src_name, dst_name in (("horsemovie", "horsemovie"), ("comfyui", "comfyui")):
         src, dst = repo / "skills" / src_name, skills / dst_name
         if dst.exists() and not args.dry_run:
             shutil.rmtree(dst)
@@ -304,7 +305,7 @@ def main() -> int:
 
     # dry-run 时也拿到一份可改的副本，否则替换无从验证
     if args.dry_run and not (skills / "comfyui" / "comfy.py").is_file():
-        for src_name, dst_name in (("HORSEmovie", "horsemovie"), ("comfyui", "comfyui")):
+        for src_name, dst_name in (("horsemovie", "horsemovie"), ("comfyui", "comfyui")):
             shutil.copytree(repo / "skills" / src_name, skills / dst_name,
                             ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
         print("  · dry-run：已拷入副本以便验证替换")

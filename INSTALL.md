@@ -31,7 +31,7 @@
 # ② 把迁移包拷到新机器，然后：
 cd HORSEmovie-bundle && ./install.sh
 # ③ 补模型、补自定义节点，最后：
-python3 doctor.py && python3 skills/HORSEmovie/scripts/calibrate.py --project <项目> --shot <镜号>
+python3 doctor.py && python3 skills/horsemovie/scripts/calibrate.py --project <项目> --shot <镜号>
 ```
 
 `install.sh` 会把 skill、工作流、管线图都装好，并检查模型和节点缺什么。
@@ -116,7 +116,8 @@ Windows 上不用 `install.sh`（那是给 Linux 的）。同一个包里有 Pow
 
 `/^[a-z0-9]+(?:-[a-z0-9]+)*$/` —— frontmatter 写成 `name: HORSEmovie` 这种驼峰/大写名，
 DSH **不报错、直接静默忽略整条 skill**（目录在、文件在，但会话里看不到，`skill` 工具也调不到）。
-包里已经改成 `name: horsemovie`（目录名保留 `HORSEmovie`）。`doctor.py` 现在会查这一条。
+仓库里已经统一成 `horsemovie`（**目录名与 frontmatter 的 `name` 一致**），装出来就是
+`~/.dsh/skills/horsemovie/`。`doctor.py` 会查这一条；旧版装成的 `HORSEmovie/` 也认，只提示改名。
 
 ---
 
@@ -241,14 +242,14 @@ cd HORSEmovie-bundle
 | 步骤 | 内容 |
 |---|---|
 | 1 | 检查前置（`~/.dsh`、ComfyUI、启动脚本） |
-| 2 | 把 `HORSEmovie` **和** `comfyui` 两个 skill 装到 `~/.dsh/skills/` |
+| 2 | 把 `horsemovie` **和** `comfyui` 两个 skill 装到 `~/.dsh/skills/`（源目录 `skills/HORSEmovie` 落地成 `horsemovie/`） |
 | 3 | 三个必需工作流装到 `~/ComfyUI/user/default/workflows/`（同名先备份） |
 | 4 | `txt2img-qwen.api.json` 装到 `~/comfy-projects/_pipelines/` |
 | 5 | 逐个核对 8 个必需模型 |
 | 6 | 逐个核对自定义节点包 |
 | 7 | 调用 `doctor.py` 出完整报告 |
 
-> **两个 skill 都要装。** `HORSEmovie` 是"怎么拍"，`comfyui` 是"怎么驱动 ComfyUI"——
+> **两个 skill 都要装。** `horsemovie` 是"怎么拍"，`comfyui` 是"怎么驱动 ComfyUI"——
 > 前者调用后者的 `comfy.py` / `render_shots.py` / `run_film.py`。只装一个跑不起来。
 
 ---
@@ -295,7 +296,7 @@ python3 doctor.py
 PY=~/.dsh/runtimes/source-launch/primary-runtime/dependencies/python/bin/python3
 
 # ④ 标定新机器（新机器配置更好的话，这一步很重要）
-$PY skills/HORSEmovie/scripts/calibrate.py --project <项目> --shot <镜号>
+$PY skills/horsemovie/scripts/calibrate.py --project <项目> --shot <镜号>
 
 # ⑤ 确认接线
 $PY ~/.dsh/skills/comfyui/comfy.py status
@@ -332,7 +333,7 @@ $PY ~/.dsh/skills/comfyui/comfy.py plan "▶▷MiniMaxH3-加速视频流整合"
 一键核对：
 
 ```bash
-$PY ~/.dsh/skills/HORSEmovie/scripts/qa_shot.py <产出的.mp4> --megapixels 0.8
+$PY ~/.dsh/skills/horsemovie/scripts/qa_shot.py <产出的.mp4> --megapixels 0.8
 ```
 
 ---
@@ -352,7 +353,7 @@ rsync -avh ~/comfy-projects/tianlie/ 新机器:~/comfy-projects/tianlie/
 
 | 现象 | 原因 |
 |---|---|
-| DSH 认不出 skill | 目录层级错了。必须 `~/.dsh/skills/HORSEmovie/SKILL.md`**，且 frontmatter 的 `name` 必须是 kebab-case**（`horsemovie`，不是 `HORSEmovie`）——写成大写名 DSH 会静默忽略 |
+| DSH 认不出 skill | 目录层级错了。必须是 `~/.dsh/skills/horsemovie/SKILL.md`，且 frontmatter 的 `name` 必须是 kebab-case（`horsemovie`，不是 `HORSEmovie`）——写成大写名 DSH 会静默忽略 |
 | 打印工作流名就崩（`UnicodeEncodeError: 'gbk'`） | Windows 控制台是 GBK。脚本里的 stdout 已强制 UTF-8；自己写脚本时记得 `sys.stdout.reconfigure(encoding="utf-8")` |
 | `Value not in list: unet_name` 但模型明明在 | 模型在子目录里（`Qwen\...`）或改了名。用 ComfyUI 里显示的名字；doctor.py 的 `model_aliases` 可以声明对应关系 |
 | `~/.dsh` 不存在 | DSH 还没跑过。第一次启动会创建 |
@@ -364,4 +365,4 @@ rsync -avh ~/comfy-projects/tianlie/ 新机器:~/comfy-projects/tianlie/
 | 换脸 | 走了 Ref2VA。必须用 I2VA（关键帧当首帧） |
 | 出现两个同一个人 | 提示词里让镜头"推"了。改成固定机位 + 硬切换景别 |
 
-**每一条的完整"症状→原因→处理"在 `skills/HORSEmovie/references/pitfalls.md`。**
+**每一条的完整"症状→原因→处理"在 `skills/horsemovie/references/pitfalls.md`。**

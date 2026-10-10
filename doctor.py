@@ -106,7 +106,10 @@ CUSTOM_NODES = [
     ("ComfyUI_VNCCS_Utils", False, "VNCCS_PoseStudio（姿态控制）"),
 ]
 
-SKILLS = ["HORSEmovie", "comfyui"]
+# skill 名必须是 kebab-case，目录名与 frontmatter 的 name 保持一致。
+# 旧版安装脚本装成 HORSEmovie/（目录名不参与校验，能加载），所以两个都认。
+SKILLS = ["horsemovie", "comfyui"]
+LEGACY_SKILL_DIRS = {"horsemovie": "HORSEmovie"}
 
 OK, BAD, WARN = "  ✓", "  ✗", "  ⚠"
 
@@ -155,6 +158,17 @@ def check_python(rep: Report) -> None:
             rep.bad(f"缺少 {mod}", f"pip install {mod} —— {why} 需要它")
 
 
+def skill_dir(root: Path, name: str) -> Path:
+    """定位 skill 目录：优先 kebab-case 名，其次旧版安装脚本用的大写目录名。"""
+    d = root / name
+    if d.is_dir():
+        return d
+    legacy = LEGACY_SKILL_DIRS.get(name)
+    if legacy is not None and (root / legacy).is_dir():
+        return root / legacy
+    return d
+
+
 def check_skills(rep: Report) -> None:
     rep.head("【DSH skills】")
     root = SKILLS_ROOT
@@ -162,27 +176,27 @@ def check_skills(rep: Report) -> None:
         rep.bad(f"没有 {root}", "这台机器可能没装 DSH；skill 必须在 DSH 里才能用")
         return
     for name in SKILLS:
-        p = root / name / "SKILL.md"
-        if p.is_file():
-            rep.ok(f"{name}")
-        elif (root / name).is_dir():
+        d = skill_dir(root, name)
+        if (d / "SKILL.md").is_file():
+            rep.ok(f"{name}" + ("" if d.name == name else f"（目录名是旧的 {d.name}/，建议改成 {name}/）"))
+        elif d.is_dir():
             rep.bad(f"{name} 目录在，但没有 SKILL.md",
-                    f"层级错了，应该是 {root}/{name}/SKILL.md")
+                    f"层级错了，应该是 {d}/SKILL.md")
         else:
             rep.bad(f"缺少 skill: {name}",
                     f"cp -r skills/{name} {root}/")
     # DSH 只认 kebab-case 的 skill 名：/^[a-z0-9]+(?:-[a-z0-9]+)*$/
     # frontmatter 写成 HORSEmovie 这种驼峰名会被**静默忽略**（目录在、文件在，但目录里看不到它）。
     for name in SKILLS:
-        f = root / name / "SKILL.md"
+        f = skill_dir(root, name) / "SKILL.md"
         if not f.is_file():
             continue
         m = re.search(r"^name:\s*['\"]?([^'\"\s]+)", f.read_text("utf-8"), re.M)
         if m and not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", m.group(1)):
             rep.bad(f"{name} 的 frontmatter name 不是 kebab-case：{m.group(1)}",
                     "DSH 会静默忽略它；改成全小写连字符名（如 horsemovie）")
-    if not (root / "HORSEmovie/scripts/qa_shot.py").is_file():
-        rep.warn("HORSEmovie/scripts/qa_shot.py 缺失", "逐镜验收脚本，建议补上")
+    if not (skill_dir(root, "horsemovie") / "scripts/qa_shot.py").is_file():
+        rep.warn("horsemovie/scripts/qa_shot.py 缺失", "逐镜验收脚本，建议补上")
 
 
 def check_comfy(rep: Report, comfy: Path) -> None:
